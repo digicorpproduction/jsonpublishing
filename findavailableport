@@ -1,0 +1,118 @@
+import socket
+import psutil
+from typing import List, Tuple
+import subprocess
+import platform
+
+class PortChecker:
+    def __init__(self):
+        self.system = platform.system().lower()
+
+    def is_port_available(self, port: int) -> bool:
+        """Check if a port is available."""
+        try:
+            # Create a socket object
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # Set socket timeout
+            sock.settimeout(2)
+            # Try to bind to the port
+            result = sock.bind(('localhost', port))
+            sock.close()
+            return True
+        except (socket.error, OSError):
+            return False
+
+    def get_process_using_port(self, port: int) -> Tuple[int, str]:
+        """Get process ID and name using the specified port."""
+        try:
+            # For Windows
+            if self.system == 'windows':
+                cmd = f'netstat -ano | findstr :{port}'
+                output = subprocess.check_output(cmd, shell=True).decode()
+                if output:
+                    pid = int(output.strip().split()[-1])
+                    process = psutil.Process(pid)
+                    return pid, process.name()
+            # For Linux/Mac
+            else:
+                cmd = f'lsof -i :{port}'
+                output = subprocess.check_output(cmd, shell=True).decode()
+                if output:
+                    lines = output.strip().split('\n')
+                    if len(lines) > 1:  # Skip header
+                        process_info = lines[1].split()
+                        pid = int(process_info[1])
+                        process = psutil.Process(pid)
+                        return pid, process.name()
+        except (subprocess.CalledProcessError, psutil.NoSuchProcess):
+            pass
+        return None, None
+
+    def find_available_ports(self, start_port: int, count: int = 5) -> List[int]:
+        """Find multiple available ports starting from start_port."""
+        available_ports = []
+        current_port = start_port
+        
+        while len(available_ports) < count and current_port < 65535:
+            if self.is_port_available(current_port):
+                available_ports.append(current_port)
+            current_port += 1
+            
+        return available_ports
+
+    def check_common_ports(self) -> dict:
+        """Check status of common development ports."""
+        common_ports = {
+            80: 'HTTP',
+            443: 'HTTPS',
+            3000: 'React/Node',
+            4200: 'Angular',
+            5000: 'Flask',
+            8000: 'Django/Python',
+            8080: 'Alternative HTTP',
+            8888: 'Jupyter Notebook'
+        }
+        
+        status = {}
+        for port, service in common_ports.items():
+            is_available = self.is_port_available(port)
+            pid, process_name = None, None
+            if not is_available:
+                pid, process_name = self.get_process_using_port(port)
+            
+            status[port] = {
+                'service': service,
+                'available': is_available,
+                'pid': pid,
+                'process': process_name
+            }
+            
+        return status
+
+def main():
+    checker = PortChecker()
+    
+    # Check a specific port
+    port_to_check = 8000
+    print(f"\nChecking port {port_to_check}...")
+    if checker.is_port_available(port_to_check):
+        print(f"Port {port_to_check} is available!")
+    else:
+        pid, process = checker.get_process_using_port(port_to_check)
+        print(f"Port {port_to_check} is in use by process {process} (PID: {pid})")
+        
+        # Find alternative ports
+        print("\nAvailable alternative ports:")
+        available_ports = checker.find_available_ports(port_to_check + 1)
+        for port in available_ports:
+            print(f"- Port {port}")
+    
+    # Check common development ports
+    print("\nStatus of common development ports:")
+    status = checker.check_common_ports()
+    for port, info in status.items():
+        status_text = "Available" if info['available'] else f"In use by {info['process']}"
+        print(f"Port {port} ({info['service']}): {status_text}")
+
+if __name__ == "__main__":
+    main()
